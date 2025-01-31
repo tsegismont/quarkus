@@ -69,6 +69,8 @@ class ReactivePgClientProcessor {
     private static final ParameterizedType POOL_CREATOR_INJECTION_TYPE = ParameterizedType.create(
             DotName.createSimple(Instance.class),
             new Type[] { ClassType.create(DotName.createSimple(PgPoolCreator.class.getName())) }, null);
+    private static final DotName VERTX_POOL = DotName.createSimple(Pool.class);
+    private static final Type VERTX_POOL_TYPE = Type.create(VERTX_POOL, Type.Kind.CLASS);
     private static final DotName VERTX_PG_POOL = DotName.createSimple(PgPool.class);
     private static final Type VERTX_PG_POOL_TYPE = Type.create(VERTX_PG_POOL, Type.Kind.CLASS);
 
@@ -201,7 +203,7 @@ class ReactivePgClientProcessor {
             return;
         }
 
-        Function<SyntheticCreationalContext<PgPool>, PgPool> poolFunction = recorder.configurePgPool(vertx.getVertx(),
+        Function<SyntheticCreationalContext<Pool>, Pool> poolFunction = recorder.configurePgPool(vertx.getVertx(),
                 eventLoopCount.getEventLoopCount(),
                 dataSourceName,
                 dataSourcesRuntimeConfig,
@@ -210,9 +212,8 @@ class ReactivePgClientProcessor {
                 shutdown);
         pgPool.produce(new PgPoolBuildItem(null, null));
 
-        ExtendedBeanConfigurator pgPoolBeanConfigurator = SyntheticBeanBuildItem.configure(PgPool.class)
+        ExtendedBeanConfigurator poolBeanConfigurator = SyntheticBeanBuildItem.configure(Pool.class)
                 .defaultBean()
-                .addType(Pool.class)
                 .scope(ApplicationScoped.class)
                 .qualifiers(qualifiers(dataSourceName))
                 .addInjectionPoint(POOL_CREATOR_INJECTION_TYPE, qualifier(dataSourceName))
@@ -222,23 +223,47 @@ class ReactivePgClientProcessor {
                 .setRuntimeInit()
                 .startup();
 
-        syntheticBeans.produce(pgPoolBeanConfigurator.done());
+        syntheticBeans.produce(poolBeanConfigurator.done());
 
-        // the Mutiny pool is created by using the Vertx pool
-        ExtendedBeanConfigurator mutinyPgPoolConfigurator = SyntheticBeanBuildItem
-                .configure(io.vertx.mutiny.pgclient.PgPool.class)
+        ExtendedBeanConfigurator vendorPoolBeanConfigurator = SyntheticBeanBuildItem.configure(PgPool.class)
                 .defaultBean()
-                .addType(io.vertx.mutiny.sqlclient.Pool.class)
                 .scope(ApplicationScoped.class)
                 .qualifiers(qualifiers(dataSourceName))
-                .addInjectionPoint(VERTX_PG_POOL_TYPE, qualifier(dataSourceName))
+                .addInjectionPoint(VERTX_POOL_TYPE, qualifier(dataSourceName))
                 .checkActive(recorder.poolCheckActiveSupplier(dataSourceName))
-                .createWith(recorder.mutinyPgPool(dataSourceName))
+                .createWith(recorder.vendorPool(dataSourceName))
                 .unremovable()
                 .setRuntimeInit()
                 .startup();
 
-        syntheticBeans.produce(mutinyPgPoolConfigurator.done());
+        syntheticBeans.produce(vendorPoolBeanConfigurator.done());
+
+        ExtendedBeanConfigurator mutinyPoolConfigurator = SyntheticBeanBuildItem.configure(io.vertx.mutiny.sqlclient.Pool.class)
+                .defaultBean()
+                .scope(ApplicationScoped.class)
+                .qualifiers(qualifiers(dataSourceName))
+                .addInjectionPoint(VERTX_POOL_TYPE, qualifier(dataSourceName))
+                .checkActive(recorder.poolCheckActiveSupplier(dataSourceName))
+                .createWith(recorder.mutinyPool(dataSourceName))
+                .unremovable()
+                .setRuntimeInit()
+                .startup();
+
+        syntheticBeans.produce(mutinyPoolConfigurator.done());
+
+        ExtendedBeanConfigurator mutinyVendorPoolConfigurator = SyntheticBeanBuildItem
+                .configure(io.vertx.mutiny.pgclient.PgPool.class)
+                .defaultBean()
+                .scope(ApplicationScoped.class)
+                .qualifiers(qualifiers(dataSourceName))
+                .addInjectionPoint(VERTX_PG_POOL_TYPE, qualifier(dataSourceName))
+                .checkActive(recorder.poolCheckActiveSupplier(dataSourceName))
+                .createWith(recorder.mutinyVendorPool(dataSourceName))
+                .unremovable()
+                .setRuntimeInit()
+                .startup();
+
+        syntheticBeans.produce(mutinyVendorPoolConfigurator.done());
     }
 
     private static boolean isReactivePostgreSQLPoolDefined(DataSourcesBuildTimeConfig dataSourcesBuildTimeConfig,
