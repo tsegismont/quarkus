@@ -208,7 +208,7 @@ class ReactivePgClientProcessor {
                 dataSourcesReactiveRuntimeConfig,
                 dataSourcesReactivePostgreSQLConfig,
                 shutdown);
-        pgPool.produce(new PgPoolBuildItem(dataSourceName, poolFunction));
+        pgPool.produce(new PgPoolBuildItem(null, null));
 
         ExtendedBeanConfigurator pgPoolBeanConfigurator = SyntheticBeanBuildItem.configure(PgPool.class)
                 .defaultBean()
